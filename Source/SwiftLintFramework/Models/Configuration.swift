@@ -155,6 +155,8 @@ public struct Configuration: Equatable {
         )
     }
 
+    fileprivate static var cache = [String: Configuration]()
+
     public init(path: String = Configuration.fileName, rootPath: String? = nil,
                 optional: Bool = true, quiet: Bool = false) {
         let fullPath = (path as NSString).absolutePathRepresentation()
@@ -168,8 +170,7 @@ public struct Configuration: Equatable {
             return
         }
         do {
-            let yamlContents = try NSString(contentsOfFile: fullPath,
-                                            encoding: String.Encoding.utf8.rawValue) as String
+            let yamlContents = try String(contentsOfFile: fullPath, encoding: .utf8)
             let dict = try YamlParser.parse(yamlContents)
             if !quiet {
                 queuedPrintError("Loading configuration from '\(path)'")
@@ -177,6 +178,7 @@ public struct Configuration: Equatable {
             self.init(dict: dict)!
             configurationPath = fullPath
             self.rootPath = rootPath
+            Configuration.cache[fullPath] = self
             return
         } catch YamlParserError.yamlParsing(let message) {
             fail("Error parsing YAML: \(message)")
@@ -184,6 +186,7 @@ public struct Configuration: Equatable {
             fail("\(error)")
         }
         self.init()!
+        Configuration.cache[fullPath] = self
     }
 
     public func lintablePathsForPath(_ path: String,
@@ -224,8 +227,10 @@ extension Configuration {
         // If a configuration exists and it isn't us, load and merge the configurations
         if configurationSearchPath != configurationPath &&
             FileManager.default.fileExists(atPath: configurationSearchPath) {
-            return merge(Configuration(path: configurationSearchPath, rootPath: rootPath,
-                optional: false, quiet: true))
+            let fullPath = (path as NSString).absolutePathRepresentation()
+            let config = Configuration.cache[fullPath] ??
+                Configuration(path: fullPath, rootPath: rootPath, optional: false, quiet: true)
+            return merge(config)
         }
 
         // If we are not at the root path, continue down the tree
