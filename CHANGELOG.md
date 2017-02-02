@@ -229,6 +229,10 @@
   have a message.  
   [Kim de Vos](https://github.com/kimdv)
   [#1348](https://github.com/realm/SwiftLint/issues/1348)
+* Improve reliability by using file modification dates instead of hashing whole
+  files.  
+  [Victor Pimentel](https://github.com/victorpimentel)
+  [#1184](https://github.com/realm/SwiftLint/issues/1184)
 
 ##### Bug Fixes
 
