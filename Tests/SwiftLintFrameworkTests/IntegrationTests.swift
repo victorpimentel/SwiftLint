@@ -24,7 +24,8 @@ class IntegrationTests: XCTestCase {
 
     func testSwiftLintLints() {
         // This is as close as we're ever going to get to a self-hosting linter.
-        let swiftFiles = config.lintableFiles(inPath: "")
+        let filePaths = config.lintablePaths(inPath: "")
+        let swiftFiles = config.lintableFiles(withPaths: filePaths, cache: nil)
         XCTAssert(swiftFiles.map({ $0.path! }).contains(#file), "current file should be included")
 
         let violations = swiftFiles.flatMap {
@@ -38,7 +39,8 @@ class IntegrationTests: XCTestCase {
     }
 
     func testSwiftLintAutoCorrects() {
-        let swiftFiles = config.lintableFiles(inPath: "")
+        let filePaths = config.lintablePaths(inPath: "")
+        let swiftFiles = config.lintableFiles(withPaths: filePaths, cache: nil)
         let corrections = swiftFiles.flatMap { Linter(file: $0, configuration: config).correct() }
         for correction in corrections {
             correction.location.file!.withStaticString {

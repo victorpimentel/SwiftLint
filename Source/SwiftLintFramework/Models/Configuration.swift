@@ -204,11 +204,30 @@ public struct Configuration: Equatable {
         let includedPaths = included.flatMap {
             fileManager.filesToLint(inPath: $0, rootDirectory: rootPath)
         }
+
         return (pathsForPath + includedPaths).filter({ !excludedPaths.contains($0) })
     }
 
-    public func lintableFiles(inPath path: String) -> [File] {
-        return lintablePaths(inPath: path).flatMap { File(path: $0) }
+    public func lintableFiles(withPaths filePaths: [String], cache: LinterCache? = nil,
+                              fileManager: LintableFileManager = fileManager) -> [File] {
+        var filePaths = filePaths
+
+        if let lastRunDate = cache?.lastRunDate {
+            filePaths = filePaths.filter {
+                if fileManager.isFile(atPath: $0, modifiedSince: lastRunDate) {
+                    cache?.clearViolations(forFile: $0)
+                    return true
+                }
+
+                if let violations = cache?.violations(forFile: $0), !violations.isEmpty {
+                    return true
+                }
+
+                return false
+            }
+        }
+
+        return filePaths.flatMap { File(path: $0) }
     }
 
     public func configuration(for file: File) -> Configuration {

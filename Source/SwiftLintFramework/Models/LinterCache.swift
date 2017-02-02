@@ -13,11 +13,30 @@ public enum LinterCacheError: Error {
     case invalidFormat
     case differentVersion
     case differentConfiguration
+    case inconsistentLastRunDate
 }
 
 public final class LinterCache {
     private var cache: [String: Any]
     private let lock = NSLock()
+
+    public var lastRunDate: Date? {
+        get {
+            lock.lock()
+            if let lastRunDateTimeInterval = cache["last_run_date"] as? TimeInterval {
+                lock.unlock()
+                return Date(timeIntervalSinceReferenceDate: lastRunDateTimeInterval)
+            } else {
+                lock.unlock()
+                return nil
+            }
+        }
+        set {
+            lock.lock()
+            cache["last_run_date"] = newValue?.timeIntervalSinceReferenceDate
+            lock.unlock()
+        }
+    }
 
     public init(currentVersion: Version = .current, configurationHash: Int? = nil) {
         cache = [
@@ -32,12 +51,17 @@ public final class LinterCache {
             throw LinterCacheError.invalidFormat
         }
 
-        guard let version = dictionary["version"] as? String, version == currentVersion.value else {
+        guard dictionary["version"] as? String == currentVersion.value else {
             throw LinterCacheError.differentVersion
         }
 
-        if dictionary["configuration_hash"] as? Int != configurationHash {
+        guard dictionary["configuration_hash"] as? Int == configurationHash else {
             throw LinterCacheError.differentConfiguration
+        }
+
+        if let lastRunDateTimeInterval = dictionary["last_run_date"] as? TimeInterval,
+            lastRunDateTimeInterval > Date().timeIntervalSinceReferenceDate {
+            throw LinterCacheError.inconsistentLastRunDate
         }
 
         self.cache = dictionary
@@ -51,24 +75,29 @@ public final class LinterCache {
                       configurationHash: configurationHash)
     }
 
-    public func cache(violations: [StyleViolation], forFile file: String, fileHash: Int) {
+    public func cache(violations: [StyleViolation], forFile file: String) {
         lock.lock()
         var filesCache = (cache["files"] as? [String: Any]) ?? [:]
         filesCache[file] = [
-            "violations": violations.map(dictionary(for:)),
-            "hash": fileHash
+            "violations": violations.map(dictionary(for:))
         ]
         cache["files"] = filesCache
         lock.unlock()
     }
 
-    public func violations(forFile file: String, hash: Int) -> [StyleViolation]? {
+    public func clearViolations(forFile file: String) {
+        lock.lock()
+        var filesCache = (cache["files"] as? [String: Any]) ?? [:]
+        filesCache[file] = []
+        cache["files"] = filesCache
+        lock.unlock()
+    }
+
+    public func violations(forFile file: String) -> [StyleViolation]? {
         lock.lock()
 
         guard let filesCache = cache["files"] as? [String: Any],
             let entry = filesCache[file] as? [String: Any],
-            let cacheHash = entry["hash"] as? Int,
-            cacheHash == hash,
             let violations = entry["violations"] as? [[String: Any]] else {
                 lock.unlock()
                 return nil
@@ -79,6 +108,8 @@ public final class LinterCache {
     }
 
     public func save(to url: URL) throws {
+        lastRunDate = Date()
+
         lock.lock()
         let json = toJSON(cache)
         lock.unlock()

@@ -26,6 +26,14 @@ class LinterCacheTests: XCTestCase {
         }
     }
 
+    func testInitThrowsWhenUsingInconsistentLastRunDate() {
+        let futureLastRunDateTimeInterval = Date().timeIntervalSinceReferenceDate + 100
+        let cache = ["version": "0.1.0", "last_run_date": futureLastRunDateTimeInterval] as [String : Any]
+        checkError(LinterCacheError.inconsistentLastRunDate) {
+            _ = try LinterCache(cache: cache, currentVersion: Version(value: "0.1.0"))
+        }
+    }
+
     func testInitThrowsWhenUsingDifferentConfiguration() {
         let cache = ["version": "0.1.0", "configuration_hash": 1] as [String : Any]
         checkError(LinterCacheError.differentConfiguration) {
@@ -40,11 +48,32 @@ class LinterCacheTests: XCTestCase {
         XCTAssertNotNil(linterCache)
     }
 
+    func testInitSucceedsWithLastRunDate() {
+        let pastLastRunDateTimeInterval = Date().timeIntervalSinceReferenceDate - 100
+        let cache = ["version": "0.2.0", "last_run_date": pastLastRunDateTimeInterval] as [String : Any]
+        let linterCache = try? LinterCache(cache: cache, currentVersion: Version(value: "0.2.0"))
+        XCTAssertNotNil(linterCache)
+        XCTAssertEqual(linterCache?.lastRunDate?.timeIntervalSinceReferenceDate, pastLastRunDateTimeInterval)
+    }
+
     func testInitSucceedsWithConfigurationHash() {
         let cache = ["version": "0.2.0", "configuration_hash": 1] as [String : Any]
         let linterCache = try? LinterCache(cache: cache, currentVersion: Version(value: "0.2.0"),
                                            configurationHash: 1)
         XCTAssertNotNil(linterCache)
+    }
+
+    func testLastRunDateIsNilByDefault() {
+        let cache = LinterCache()
+        XCTAssertNil(cache.lastRunDate)
+    }
+
+    func testSetLastRunDate() {
+        let cache = LinterCache()
+        let date = Date()
+        cache.lastRunDate = date
+        XCTAssertEqual(cache.lastRunDate?.timeIntervalSinceReferenceDate,
+                       date.timeIntervalSinceReferenceDate)
     }
 
     func testParsesViolations() {
@@ -63,26 +92,41 @@ class LinterCacheTests: XCTestCase {
                            reason: "Something is wrong.")
         ]
 
-        cache.cache(violations: violations, forFile: file, fileHash: 1)
-        let cachedViolations = cache.violations(forFile: file, hash: 1)
+        cache.cache(violations: violations, forFile: file)
+        let cachedViolations = cache.violations(forFile: file)
 
         XCTAssertNotNil(cachedViolations)
         XCTAssertEqual(cachedViolations!, violations)
     }
 
-    func testParsesViolationsWithModifiedHash() {
+    func testParsesViolationsWithEmptyViolations() {
         let cache = LinterCache(currentVersion: Version(value: "0.2.0"))
         let file = "foo.swift"
-        cache.cache(violations: [], forFile: file, fileHash: 1)
-        let cachedViolations = cache.violations(forFile: file, hash: 2)
+        let cachedViolations = cache.violations(forFile: file)
 
         XCTAssertNil(cachedViolations)
     }
 
-    func testParsesViolationsWithEmptyViolations() {
+    func testClearsViolations() {
         let cache = LinterCache(currentVersion: Version(value: "0.2.0"))
         let file = "foo.swift"
-        let cachedViolations = cache.violations(forFile: file, hash: 2)
+        let ruleDescription = RuleDescription(identifier: "rule", name: "Some rule",
+                                              description: "Validates stuff")
+        let violations = [
+            StyleViolation(ruleDescription: ruleDescription,
+                           severity: .warning,
+                           location: Location(file: file, line: 10, character: 2),
+                           reason: "Something is not right."),
+            StyleViolation(ruleDescription: ruleDescription,
+                           severity: .error,
+                           location: Location(file: file, line: 5, character: nil),
+                           reason: "Something is wrong.")
+        ]
+
+        cache.cache(violations: violations, forFile: file)
+        cache.clearViolations(forFile: file)
+
+        let cachedViolations = cache.violations(forFile: file)
 
         XCTAssertNil(cachedViolations)
     }
@@ -93,12 +137,16 @@ extension LinterCacheTests {
         return [
             ("testInitThrowsWhenUsingDifferentVersion", testInitThrowsWhenUsingDifferentVersion),
             ("testInitThrowsWhenUsingInvalidCacheFormat", testInitThrowsWhenUsingInvalidCacheFormat),
+            ("testInitThrowsWhenUsingInconsistentLastRunDate", testInitThrowsWhenUsingInconsistentLastRunDate),
             ("testInitThrowsWhenUsingDifferentConfiguration", testInitThrowsWhenUsingDifferentConfiguration),
             ("testInitSucceeds", testInitSucceeds),
+            ("testInitSucceedsWithLastRunDate", testInitSucceedsWithLastRunDate),
             ("testInitSucceedsWithConfigurationHash", testInitSucceedsWithConfigurationHash),
+            ("testLastRunDateIsNilByDefault", testLastRunDateIsNilByDefault),
+            ("testSetLastRunDate", testSetLastRunDate),
             ("testParsesViolations", testParsesViolations),
-            ("testParsesViolationsWithModifiedHash", testParsesViolationsWithModifiedHash),
-            ("testParsesViolationsWithEmptyViolations", testParsesViolationsWithEmptyViolations)
+            ("testParsesViolationsWithEmptyViolations", testParsesViolationsWithEmptyViolations),
+            ("testClearViolations", testClearsViolations)
         ]
     }
 }

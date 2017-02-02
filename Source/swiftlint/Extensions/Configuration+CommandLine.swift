@@ -60,15 +60,21 @@ extension Configuration {
                             quiet: Bool = false, useScriptInputFiles: Bool,
                             cache: LinterCache? = nil, parallel: Bool = false,
                             visitorBlock: @escaping (Linter) -> Void) -> Result<[File], CommandantError<()>> {
-        return getFiles(path: path, action: action, useSTDIN: useSTDIN, quiet: quiet,
-                        useScriptInputFiles: useScriptInputFiles)
-        .flatMap { files -> Result<[File], CommandantError<()>> in
-            if files.isEmpty {
-                let errorMessage = "No lintable files found at path '\(path)'"
-                return .failure(.usageError(description: errorMessage))
+        let files: Result<[File], CommandantError<()>>
+
+        if useSTDIN {
+            files = getSTDINFile()
+        } else if useScriptInputFiles {
+            files = scriptInputFiles()
+        } else {
+            files = getFiles(inPath: path, cache: cache, action: action, quiet: quiet)
+        }
+
+        return files.flatMap { files in
+            guard !files.isEmpty else {
+                return .success(files)
             }
-            return .success(files)
-        }.flatMap { files in
+
             let queue = DispatchQueue(label: "io.realm.swiftlint.indexIncrementer")
             var index = 0
             let fileCount = files.count
@@ -100,22 +106,29 @@ extension Configuration {
         }
     }
 
-    fileprivate func getFiles(path: String, action: String, useSTDIN: Bool, quiet: Bool,
-                              useScriptInputFiles: Bool) -> Result<[File], CommandantError<()>> {
-        if useSTDIN {
-            let stdinData = FileHandle.standardInput.readDataToEndOfFile()
-            if let stdinString = String(data: stdinData, encoding: .utf8) {
-                return .success([File(contents: stdinString)])
-            }
-            return .failure(.usageError(description: "stdin isn't a UTF8-encoded string"))
-        } else if useScriptInputFiles {
-            return scriptInputFiles()
-        }
+    fileprivate func getFiles(inPath path: String, cache: LinterCache?,
+                              action: String, quiet: Bool) -> Result<[File], CommandantError<()>> {
         if !quiet {
             let message = "\(action) Swift files " + (path.isEmpty ? "in current working directory" : "at path \(path)")
             queuedPrintError(message)
         }
-        return .success(lintableFiles(inPath: path))
+
+        let filePaths = lintablePaths(inPath: path)
+
+        if filePaths.isEmpty {
+            let errorMessage = "No lintable files found at path '\(path)'"
+            return .failure(.usageError(description: errorMessage))
+        }
+
+        return .success(lintableFiles(withPaths: filePaths, cache: cache))
+    }
+
+    fileprivate func getSTDINFile() -> Result<[File], CommandantError<()>> {
+        let stdinData = FileHandle.standardInput.readDataToEndOfFile()
+        if let stdinString = String(data: stdinData, encoding: .utf8) {
+            return .success([File(contents: stdinString)])
+        }
+        return .failure(.usageError(description: "stdin isn't a UTF8-encoded string"))
     }
 
     // MARK: Lint Command
